@@ -1,0 +1,63 @@
+<script type="text/javascript">
+
+// init
+$(document).ready(function(){
+  $('#after_enter').hide();
+});
+
+
+function chatClient(){
+  return $("#csocket").get(0);
+}
+
+
+function join(){
+  var name = $('#cname').val();
+
+  chatClient().join(name);
+
+  $('#before_enter').hide();
+  $('#after_enter').show();
+}
+
+function leave(){
+  chatClient().leave();
+}
+
+function say(){
+  var body = $('#cbody').val();
+  chatClient().sndMsg(body);
+
+  var html='<li class="chat_item"><span class="name">いいいい</span><span class="body"><div>' + body + '</div></span></li>';
+  $('#chat_window').append(html);
+  $('#cbody').val('');
+}
+
+</script>
+
+<div id="chat">
+  <div id="after_enter">
+    <form >
+      <input id="cbody" type="text" >
+      <input type="button" value="Enter" onClick="say()">
+      <input type="button" value="Leave" onClick="leave()">
+    </form>
+    <ul id="chat_window"></ul>
+  </div>
+
+  <div id="before_enter">
+    <form >
+      <input id="cname" type="text" >
+      <input type="button" value="Join" onClick="join()">
+    </form>
+  </div>
+</div>
+
+
+<object id="csocket" data="http://localhost:3000/swf/CSocket.swf" width="1" height="1" type="application/x-shockwave-flash" >
+  <param name="movie" value="http://localhost:3000/swf/CSocket.swf" />
+  <param name="wmode" value="transparent" />
+  <!--   <param name="wmode" value="window" /> -->
+  <param name="allowScriptAccess" value="always" />
+  <param name="allowFullScreen" value="false" />
+</object>
