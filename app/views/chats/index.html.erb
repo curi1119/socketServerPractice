@@ -29,8 +29,13 @@ function say(){
   chatClient().sndMsg(body);
 
   var html='<li class="chat_item"><span class="name">いいいい</span><span class="body"><div>' + body + '</div></span></li>';
-  $('#chat_window').append(html);
+  //$('#chat_window').append(html);
   $('#cbody').val('');
+}
+
+function recv(body){
+  var html='<li class="chat_item"><span class="name">いいいい</span><span class="body"><div>' + body + '</div></span></li>';
+  $('#chat_window').append(html);
 }
 
 </script>

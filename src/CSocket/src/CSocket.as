@@ -11,7 +11,6 @@ package {
 
 		public function CSocket() {
 			_chat = new ChatSocket( '127.0.0.1', 11223 );
-			ExternalInterface.addCallback( 'hello', hello );
 			ExternalInterface.addCallback( 'join', join );
 			ExternalInterface.addCallback( 'sndMsg', sendMsg );
 			ExternalInterface.addCallback( 'leave', leave );
@@ -29,13 +28,10 @@ package {
 			_chat.sendMessage( body );
 		}
 
-		private function hello():void {
-			debugTrace( 'hogehoge' );
-		}
-
-		private function debugTrace( any:* ):void {
-			trace( any );
-			ExternalInterface.call( 'console.log', any );
+		private function debugTrace( ... args ):void {
+			var str:String = args.join( ' ' );
+			trace( str );
+			ExternalInterface.call( 'console.log', str );
 		}
 	}
 }

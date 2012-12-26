@@ -3,9 +3,9 @@ package com.curi.net {
 	import flash.events.IOErrorEvent;
 	import flash.events.ProgressEvent;
 	import flash.events.SecurityErrorEvent;
+	import flash.external.ExternalInterface;
 	import flash.net.Socket;
 	import flash.utils.ByteArray;
-	import flash.external.ExternalInterface;
 
 	public class ChatSocket {
 
@@ -40,20 +40,24 @@ package com.curi.net {
 		public function join( name:String ):void {
 			debugTrace( 'join' );
 			_socket.connect( _host, _port );
+			// send JOIN CMD
 		}
 
 		public function leave():void {
 			debugTrace( 'leave' );
+			// send LEAVE CMD
 			_socket.close();
 			//this.dispose();
 		}
 
+		public function getMembers():void {
+			// send GET_MEMBERS CMD
+		}
+
 		public function sendMessage( body:String ):void {
 			debugTrace( "message sending...", body );
-			var toBody:String   = body + "¥r¥n";
-			var bytes:ByteArray = new ByteArray();
-			bytes.writeUTF( toBody );
-			_socket.writeBytes( bytes );
+			// send SAY CMD
+			_socket.writeUTFBytes( body );
 			_socket.flush();
 		}
 
@@ -61,10 +65,12 @@ package com.curi.net {
 			debugTrace( "socketDataHandler: " + event );
 			var bytes:ByteArray = new ByteArray();
 			_socket.readBytes( bytes, event.bytesTotal );
-			debugTrace( bytes.toString());
-			//var body:String = _socket.readUTF();
-			//trace( body );
-
+			var msg:String = bytes.toString();
+			switch ( true ) {
+				default:
+					ExternalInterface.call( 'recv', msg );
+					break;
+			}
 		}
 
 		private function connectHandler( event:Event ):void {

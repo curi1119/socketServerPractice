@@ -135,29 +135,18 @@ send_recv_loop(int acc)
 	ssize_t len;
 	for (;;) {
 		(void) fprintf(stderr, "-----------------------------------\n");
-		/* 受信 */
+
 		if ((len = recv(acc, buf, sizeof(buf), 0)) == -1) {
-			/* エラー */
 			perror("recv");
 			break;
 		}
+		fprintf(stderr, "[DEBUG]%s\n", buf);
+
 		if (len == 0) {
-			/* エンド・オブ・ファイル */
 			(void) fprintf(stderr, "recv:EOF\n");
 			break;
 		}
-		/* 文字列化・表示 */
-		buf[len]='\0';
-		if ((ptr = strpbrk(buf, "\r\n")) != NULL) {
-			*ptr = '\0';
-		}
-		(void) fprintf(stderr, "[client]%s\n", buf);
-		/* 応答文字列作成 */
-		(void) mystrlcat(buf, ":OK\r\n", sizeof(buf));
-		len = (ssize_t) strlen(buf);
-		/* 応答 */
 		if ((len = send(acc, buf, (size_t) len, 0)) == -1) {
-			/* エラー */
 			perror("send");
 			break;
 		}
