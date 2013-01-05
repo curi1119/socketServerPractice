@@ -103,52 +103,142 @@ void
 accept_loop(int soc)
 {
 	char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+	int child[MAX_CHILD];
+	struct timeval timeout;
 	struct sockaddr_storage from;
-	int acc;
+	int acc, child_no, width, i, count, pos, ret;
 	socklen_t len;
+	fd_set mask;
 
+	/* child配列の初期化 */
+	for (i = 0; i < MAX_CHILD; i++) {
+		child[i] = -1;
+	}
+	child_no = 0;
 	for (;;) {
-		(void) fprintf(stderr, "accpet\n");
-		len = (socklen_t) sizeof(from);
-		if ((acc = accept(soc, (struct sockaddr *) &from, &len)) == -1) {
-			if (errno != EINTR) {
-				perror("accept");
+		/* select()用マスクの作成 */
+		FD_ZERO(&mask);
+		FD_SET(soc, &mask);
+		width = soc + 1;
+		count = 0;
+		for (i = 0; i < child_no; i++) {
+			if (child[i] != -1) {
+				FD_SET(child[i], &mask);
+				if (child[i] + 1 > width) {
+					width = child[i] + 1;
+					count++;
+				}
 			}
-		} else {
-			(void) getnameinfo((struct sockaddr *) &from, len,
-							   hbuf, sizeof(hbuf),
-							   sbuf, sizeof(sbuf),
-							   NI_NUMERICHOST | NI_NUMERICSERV);
-			(void) fprintf(stderr, "accept:%s:%s\n", hbuf, sbuf);
-			send_recv_loop(acc);
-			(void) close(acc);
-			acc = 0;
+		}
+		//(void) fprintf(stderr, "<<child count:%d>>\n", count);
+		/* select()用タイムアウト値のセット */
+		timeout.tv_sec = 10;
+		timeout.tv_usec = 0;
+		switch (select(width, (fd_set *) &mask, NULL, NULL, &timeout)) {
+		case -1:
+			/* エラー */
+			perror("select");
+			break;
+		case 0:
+			/* タイムアウト */
+			break;
+		default:
+			/* レディ有り */
+			if (FD_ISSET(soc, &mask)) {
+				/* サーバソケットレディ */
+				len = (socklen_t) sizeof(from);
+				/* 接続受付 */
+				if ((acc = accept(soc, (struct sockaddr *)&from, &len)) == -1) {
+					if(errno!=EINTR){
+						perror("accept");
+					}
+				} else {
+					(void) getnameinfo((struct sockaddr *) &from, len,
+									   hbuf, sizeof(hbuf),
+									   sbuf, sizeof(sbuf),
+									   NI_NUMERICHOST | NI_NUMERICSERV);
+					(void) fprintf(stderr, "accept:%s:%s\n", hbuf, sbuf);
+					/* childの空きを検索 */
+					pos = -1;
+					for (i = 0; i < child_no; i++) {
+						if (child[i] == -1) {
+							pos = i;
+							break;
+						}
+					}
+					if (pos == -1) {
+						/* 空きが無い */
+						if (child_no + 1 >= MAX_CHILD) {
+							/* childにこれ以上格納できない */
+							(void) fprintf(stderr, "child is full : cannot accept\n");
+							/* クローズしてしまう */
+							(void) close(acc);
+						} else {
+							child_no++;
+							pos = child_no - 1;
+						}
+					}
+					if (pos != -1) {
+						/* childに格納 */
+						child[pos] = acc;
+					}
+				}
+			}
+			/* アクセプトしたソケットがレディ */
+			for (i = 0; i < child_no; i++) {
+				if (child[i] != -1) {
+					if (FD_ISSET(child[i], &mask)) {
+						/* 送受信 */
+						if ((ret = send_recv(child[i], i, child)) == -1) {
+							/* エラーまたは切断 */
+							/* クローズ */
+							(void) close(child[i]);
+							/* childを空きに */
+							child[i] = -1;
+						}
+					}
+				}
+			}
+			break;
 		}
 	}
 }
 
 /* 送受信ループ */
-void
-send_recv_loop(int acc)
+int
+send_recv(int acc, int child_no, int *childs)
 {
-	char buf[512], *ptr;
+	char buf[512]; //, *ptr;
 	ssize_t len;
-	for (;;) {
-		(void) fprintf(stderr, "-----------------------------------\n");
 
-		if ((len = recv(acc, buf, sizeof(buf), 0)) == -1) {
-			perror("recv");
-			break;
-		}
-		fprintf(stderr, "[DEBUG]%s\n", buf);
+	(void) fprintf(stderr, "-----------------------------------\n");
 
-		if (len == 0) {
-			(void) fprintf(stderr, "recv:EOF\n");
-			break;
-		}
-		if ((len = send(acc, buf, (size_t) len, 0)) == -1) {
-			perror("send");
-			break;
+	if ((len = recv(acc, buf, sizeof(buf), 0)) == -1) {
+		perror("recv");
+		return(-1);
+	}
+	fprintf(stderr, "len= %zd\n", len);
+	fprintf(stderr, "[DEBUG:child%d]%s\n", child_no, buf);
+
+	if (len == 0) {
+		(void) fprintf(stderr, "recv:EOF\n");
+		return(-1);
+	}
+	int i;
+	for (i = 0; i < MAX_CHILD; i++) {
+		if(childs[i] != -1){
+			fprintf(stderr, "sending....to [child:%d]\n", i);
+			if ((len = send(childs[i], buf, (size_t) len, 0)) == -1) {
+				perror("send");
+				return(-1);
+			}
 		}
 	}
+	/*
+	if ((len = send(acc, buf, (size_t) len, 0)) == -1) {
+		perror("send");
+		return(-1);
+	}
+	*/
+	return(0);
 }
