@@ -64,8 +64,7 @@ server_socket(const char *portnm)
 	}
 	(void) fprintf(stderr, "port=%s\n", sbuf);
 	/* ソケットの生成 */
-	if ((soc = socket(res0->ai_family, res0->ai_socktype, res0->ai_protocol))
-		== -1) {
+	if ((soc = socket(res0->ai_family, res0->ai_socktype, res0->ai_protocol)) == -1) {
 		perror("socket");
 		freeaddrinfo(res0);
 		return (-1);
@@ -103,17 +102,21 @@ void
 accept_loop(int soc)
 {
 	char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
-	int child[MAX_CHILD];
+	//int child[MAX_CHILD];
+	struct user users[MAX_CHILD];
 	struct timeval timeout;
 	struct sockaddr_storage from;
 	int acc, child_no, width, i, count, pos, ret;
 	socklen_t len;
 	fd_set mask;
 
-	/* child配列の初期化 */
+	// usersの初期化
 	for (i = 0; i < MAX_CHILD; i++) {
-		child[i] = -1;
+		users[i].no = i;
+		//users[i].name = "";
+		users[i].accept = -1;
 	}
+
 	child_no = 0;
 	for (;;) {
 		/* select()用マスクの作成 */
@@ -122,14 +125,15 @@ accept_loop(int soc)
 		width = soc + 1;
 		count = 0;
 		for (i = 0; i < child_no; i++) {
-			if (child[i] != -1) {
-				FD_SET(child[i], &mask);
-				if (child[i] + 1 > width) {
-					width = child[i] + 1;
+			if (users[i].accept != -1) {
+				FD_SET(users[i].accept, &mask);
+				if (users[i].accept + 1 > width) {
+					width = users[i].accept + 1;
 					count++;
 				}
 			}
 		}
+
 		//(void) fprintf(stderr, "<<child count:%d>>\n", count);
 		/* select()用タイムアウト値のセット */
 		timeout.tv_sec = 10;
@@ -161,7 +165,7 @@ accept_loop(int soc)
 					/* childの空きを検索 */
 					pos = -1;
 					for (i = 0; i < child_no; i++) {
-						if (child[i] == -1) {
+						if (users[i].accept == -1) {
 							pos = i;
 							break;
 						}
@@ -180,21 +184,21 @@ accept_loop(int soc)
 					}
 					if (pos != -1) {
 						/* childに格納 */
-						child[pos] = acc;
+						users[pos].accept = acc;
 					}
 				}
 			}
-			/* アクセプトしたソケットがレディ */
+			// アクセプトしたソケットがレディ
 			for (i = 0; i < child_no; i++) {
-				if (child[i] != -1) {
-					if (FD_ISSET(child[i], &mask)) {
-						/* 送受信 */
-						if ((ret = send_recv(child[i], i, child)) == -1) {
-							/* エラーまたは切断 */
-							/* クローズ */
-							(void) close(child[i]);
-							/* childを空きに */
-							child[i] = -1;
+				if (users[i].accept != -1) {
+					if (FD_ISSET(users[i].accept, &mask)) {
+						// 送受信
+						if ((ret = send_recv(users[i].accept, i, users)) == -1) {
+							// エラーまたは切断
+							// クローズ
+							(void) close(users[i].accept);
+							// childを空きに
+							users[i].accept = -1;
 						}
 					}
 				}
@@ -206,7 +210,7 @@ accept_loop(int soc)
 
 /* 送受信ループ */
 int
-send_recv(int acc, int child_no, int *childs)
+send_recv(int acc, int child_no, struct user *users)
 {
 	char buf[512]; //, *ptr;
 	ssize_t len;
@@ -226,9 +230,9 @@ send_recv(int acc, int child_no, int *childs)
 	}
 	int i;
 	for (i = 0; i < MAX_CHILD; i++) {
-		if(childs[i] != -1){
-			fprintf(stderr, "sending....to [child:%d]\n", i);
-			if ((len = send(childs[i], buf, (size_t) len, 0)) == -1) {
+		if(users[i].accept != -1){
+			fprintf(stderr, "sending....to [user:%d]\n", users[i].no);
+			if ((len = send(users[i].accept, buf, (size_t) len, 0)) == -1) {
 				perror("send");
 				return(-1);
 			}
