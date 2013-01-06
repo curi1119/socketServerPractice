@@ -8,10 +8,14 @@ package com.curi.net {
 	import flash.utils.ByteArray;
 
 	public class ChatSocket {
+		public static const JOIN_CMD:String  = 'JOIN';
+		public static const SAY_CMD:String   = 'SAY';
+		public static const LEAVE_CMD:String = 'LEAVE';
 
 		private var _socket:Socket;
 		private var _host:String;
-		private var _port:int = -1;
+		private var _port:int                = -1;
+		private var _name:String;
 
 		public function ChatSocket( host:String, port:int ) {
 			_host = host;
@@ -38,16 +42,13 @@ package com.curi.net {
 		}
 
 		public function join( name:String ):void {
-			debugTrace( 'join' );
 			_socket.connect( _host, _port );
-			// send JOIN CMD
+			_name = name;
 		}
 
 		public function leave():void {
-			debugTrace( 'leave' );
-			// send LEAVE CMD
-			_socket.close();
-			//this.dispose();
+			leaveCmd();
+			//_socket.close();
 		}
 
 		public function getMembers():void {
@@ -56,8 +57,7 @@ package com.curi.net {
 
 		public function sendMessage( body:String ):void {
 			debugTrace( "message sending...", body );
-			// send SAY CMD
-			sendCmd( body );
+			sayCmd( body );
 		}
 
 		private function socketDataHandler( event:ProgressEvent ):void {
@@ -72,10 +72,28 @@ package com.curi.net {
 			}
 		}
 
-		private function sendCmd( body:String ):void {
-			var msg:String    = body + '\n';
+		public function joinCmd( name:String ):void {
+			sendCmd( JOIN_CMD, name );
+		}
+
+		public function sayCmd( msg:String ):void {
+			sendCmd( SAY_CMD, msg );
+		}
+
+		public function leaveCmd():void {
+			sendCmd( LEAVE_CMD );
+		}
+
+		private function sendCmd( cmd:String, body:String = null ):void {
+			var message:String = cmd;
+			if ( body != null ) {
+				message += ' ' + body;
+			}
+			message += '\n';
+
 			var buf:ByteArray = new ByteArray;
-			buf.writeUTFBytes( msg );
+			buf.writeUTFBytes( message );
+			debugTrace( buf );
 			_socket.writeBytes( buf );
 			//_socket.writeUTFBytes( msg );
 			_socket.flush();
@@ -83,6 +101,7 @@ package com.curi.net {
 
 		private function connectHandler( event:Event ):void {
 			debugTrace( "connectHandler: " + event );
+			joinCmd( _name );
 		}
 
 		private function closeHandler( event:Event ):void {

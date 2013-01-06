@@ -1,5 +1,5 @@
 PROGRAM =       chat_server
-OBJS    =       main.o server.o string_concat.o
+OBJS    =       main.o server.o chat_command.o
 SRCS    =       $(OBJS:%.o=%.c)
 CFLAGS  =       -g -Wall
 LDFLAGS =

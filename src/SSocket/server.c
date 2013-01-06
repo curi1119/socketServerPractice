@@ -18,10 +18,10 @@
 #include <stdbool.h>
 
 #include "server.h"
-#include "string_concat.h"
+#include "chat_command.h"
+//#include "string_concat.h"
 
-#define MAX_CHILD    (20)
-#define PORT    "11223"
+
 
 int
 start_server()
@@ -195,11 +195,11 @@ accept_loop(int soc)
 				if (users[i].socket != -1) {
 					if (FD_ISSET(users[i].socket, &mask)) {
 						// 送受信
-						ret = send_recv(users[i].socket, i, users);
+						ret = send_recv(&users[i], i, users);
 						if (ret == -1) {
 							// エラーまたは切断
 							// クローズ
-							(void) close(users[i].socket);
+							disconnect(&users[i]);
 							// childを空きに
 							users[i].socket = -1;
 						}
@@ -304,14 +304,14 @@ recv_line(int socket, char **ret_buf)
 }
 
 int
-send_recv(int socket, int child_no, struct user *users)
+send_recv(struct user *u, int child_no, struct user *users)
 {
+	//struct user *up = &u;
 	char *buf;
 	ssize_t len;
-	//size_t alloc_len;
-	(void) fprintf(stderr, "-----------------------------------\n");
 
-	len = recv_line(socket, &buf);
+	(void) fprintf(stderr, "-----------------------------------\n");
+	len = recv_line(u->socket, &buf);
 	if (len == -1){ // 受信失敗。無視する
 		(void) fprintf(stderr, "error");
 		return(0);
@@ -320,59 +320,59 @@ send_recv(int socket, int child_no, struct user *users)
 		(void) fprintf(stderr, "recv:EOF\n");
 		return(-1);
 	}
-	int i;
+	char *cmd, *body;
+	client_cmd_parse(buf, &cmd, &body);
+
+	if(strncmp(cmd, "JOIN", sizeof("JOIN")) == 0){
+		fprintf(stderr, "JOIN CMD..\n");
+		if(!set_name(u, body)){
+			disconnect(u);
+		}
+		(void) fprintf(stderr, "name= '%s'\n", u->name);
+	}else if(strncmp(cmd, "SAY", sizeof("SAY")) == 0){
+		fprintf(stderr, "SAY CMD..\n");
+
+		push_to_everybody(users, generate_sayed_cmd(u, body));
+		/*
+		int send_len = strlen(body);
+		fprintf(stderr, "body...'%s', len=%d\n", body, send_len);
+		generate_sayed_cmd(u, body);
+		int i;
+		for (i = 0; i < MAX_CHILD; i++) {
+			if(users[i].socket != -1){
+				fprintf(stderr, "sending....to [user:%d]\n", users[i].no);
+				len = send(users[i].socket, body, (size_t) send_len, 0);
+				if (len == -1) {
+					perror("send");
+					return(-1);
+				}
+			}
+		}
+		*/
+	}else if(strncmp(cmd, "LEAVE", sizeof("LEAVE")) == 0){
+		fprintf(stderr, "LEAVE CMD..\n");
+	}
+	//free(body);
+	free(cmd);
+	free(buf);
+	return(0);
+}
+void push_to_everybody(struct user *users, char *msg){
+	int i, len;
+	int send_len = strlen(msg);
 	for (i = 0; i < MAX_CHILD; i++) {
 		if(users[i].socket != -1){
 			fprintf(stderr, "sending....to [user:%d]\n", users[i].no);
-			len = send(users[i].socket, buf, (size_t) len, 0);
+			len = send(users[i].socket, msg, (size_t) send_len, 0);
 			if (len == -1) {
 				perror("send");
-				return(-1);
 			}
 		}
 	}
-	return(0);
 }
 
-
-
-/* 送受信ループ */
-/* int */
-/* send_recv(int acc, int child_no, struct user *users) */
-/* { */
-/* 	char buf[512]; //, *ptr; */
-/* 	ssize_t len; */
-
-/* 	(void) fprintf(stderr, "-----------------------------------\n"); */
-
-/* 	len = recv(acc, buf, sizeof(buf), 0); */
-/* 	if (len == -1) { */
-/* 		perror("recv"); */
-/* 		return(-1); */
-/* 	} */
-/* 	fprintf(stderr, "len= %zd\n", len); */
-/* 	fprintf(stderr, "[DEBUG:child%d]%s\n", child_no, buf); */
-
-/* 	if (len == 0) { */
-/* 		(void) fprintf(stderr, "recv:EOF\n"); */
-/* 		return(-1); */
-/* 	} */
-/* 	int i; */
-/* 	for (i = 0; i < MAX_CHILD; i++) { */
-/* 		if(users[i].socket != -1){ */
-/* 			fprintf(stderr, "sending....to [user:%d]\n", users[i].no); */
-/* 			len = send(users[i].socket, buf, (size_t) len, 0); */
-/* 			if (len == -1) { */
-/* 				perror("send"); */
-/* 				return(-1); */
-/* 			} */
-/* 		} */
-/* 	} */
-/* 	/\* */
-/* 	if ((len = send(acc, buf, (size_t) len, 0)) == -1) { */
-/* 		perror("send"); */
-/* 		return(-1); */
-/* 	} */
-/* 	*\/ */
-/* 	return(0); */
-/* } */
+void disconnect(struct user *u){
+	u->name[0] = '\0';
+	(void)close(u->socket);
+	u->socket = -1;
+}
