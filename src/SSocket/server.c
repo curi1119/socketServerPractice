@@ -15,12 +15,13 @@
 #include <string.h>
 #include <sysexits.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "server.h"
 #include "string_concat.h"
 
-#define    MAX_CHILD    (20)
-#define    PORT    "11223"
+#define MAX_CHILD    (20)
+#define PORT    "11223"
 
 int
 start_server()
@@ -114,7 +115,7 @@ accept_loop(int soc)
 	for (i = 0; i < MAX_CHILD; i++) {
 		users[i].no = i;
 		//users[i].name = "";
-		users[i].accept = -1;
+		users[i].socket = -1;
 	}
 
 	child_no = 0;
@@ -125,10 +126,10 @@ accept_loop(int soc)
 		width = soc + 1;
 		count = 0;
 		for (i = 0; i < child_no; i++) {
-			if (users[i].accept != -1) {
-				FD_SET(users[i].accept, &mask);
-				if (users[i].accept + 1 > width) {
-					width = users[i].accept + 1;
+			if (users[i].socket != -1) {
+				FD_SET(users[i].socket, &mask);
+				if (users[i].socket + 1 > width) {
+					width = users[i].socket + 1;
 					count++;
 				}
 			}
@@ -152,7 +153,8 @@ accept_loop(int soc)
 				/* サーバソケットレディ */
 				len = (socklen_t) sizeof(from);
 				/* 接続受付 */
-				if ((acc = accept(soc, (struct sockaddr *)&from, &len)) == -1) {
+				acc = accept(soc, (struct sockaddr *)&from, &len);
+				if (acc == -1) {
 					if(errno!=EINTR){
 						perror("accept");
 					}
@@ -165,7 +167,7 @@ accept_loop(int soc)
 					/* childの空きを検索 */
 					pos = -1;
 					for (i = 0; i < child_no; i++) {
-						if (users[i].accept == -1) {
+						if (users[i].socket == -1) {
 							pos = i;
 							break;
 						}
@@ -184,21 +186,22 @@ accept_loop(int soc)
 					}
 					if (pos != -1) {
 						/* childに格納 */
-						users[pos].accept = acc;
+						users[pos].socket = acc;
 					}
 				}
 			}
 			// アクセプトしたソケットがレディ
 			for (i = 0; i < child_no; i++) {
-				if (users[i].accept != -1) {
-					if (FD_ISSET(users[i].accept, &mask)) {
+				if (users[i].socket != -1) {
+					if (FD_ISSET(users[i].socket, &mask)) {
 						// 送受信
-						if ((ret = send_recv(users[i].accept, i, users)) == -1) {
+						ret = send_recv(users[i].socket, i, users);
+						if (ret == -1) {
 							// エラーまたは切断
 							// クローズ
-							(void) close(users[i].accept);
+							(void) close(users[i].socket);
 							// childを空きに
-							users[i].accept = -1;
+							users[i].socket = -1;
 						}
 					}
 				}
@@ -208,41 +211,168 @@ accept_loop(int soc)
 	}
 }
 
-/* 送受信ループ */
-int
-send_recv(int acc, int child_no, struct user *users)
+ssize_t
+recv_by_byte(int socket, char *buf, size_t bufsize)
 {
-	char buf[512]; //, *ptr;
-	ssize_t len;
 
+	bool incoming;
+	ssize_t len, rlen;
+	int pos = 0;
+	char c;
+
+	(void) fprintf(stderr, "-recv_by_byte---------------------\n");
+	buf[0] = '\0';
+	do{
+		incoming = true;
+		c = '\0';
+		len = recv(socket, &c, 1, 0);
+		if (len == -1) {
+			perror("recv");
+			rlen = -1;
+			incoming = false;
+		} else if (len == 0) {
+			(void) fprintf(stderr, "recv:EOF\n");
+			incoming = false;
+		} else {
+			buf[pos] = c;
+			pos++;
+			if(c == '\n' || pos >= bufsize -1){
+				rlen = pos;
+				incoming = false;
+			}
+		}
+	} while(incoming);
+	buf[pos] = '\0';
+	(void) fprintf(stderr, "-rlen=%zd\n", rlen);
+	(void) fprintf(stderr, "'%s'\n", buf);
+
+	return(rlen);
+}
+
+#define RECV_ALLOC_SIZE      (1024)
+#define RECV_ALLOC_LIMIT     (1024 * 1024)
+ssize_t
+recv_line(int socket, char **ret_buf)
+{
+	(void) fprintf(stderr, "-recv_line---------------------\n");
+	char buf[RECV_ALLOC_SIZE], *data = NULL;
+	bool incoming;
+	ssize_t size = 0, current_length = 0, len, rv;
+	do{
+		incoming = true;
+		len = recv_by_byte(socket, buf, sizeof(buf));
+		if(len == -1){
+			free(data);
+			data = NULL;
+			rv = -1;
+			incoming = false;
+		} else if (len == 0) {
+			rv = -1;
+			incoming = false;
+		} else {
+			if (current_length + len >= size) {
+				size += RECV_ALLOC_SIZE;
+				if (size > RECV_ALLOC_LIMIT) {
+					free(data);
+					data = NULL;
+				} else if (data == NULL) {
+					data = malloc(size);
+				} else {
+					data=realloc(data,size);
+				}
+			}
+			if (data == NULL) {
+				perror("malloc or realloc or limit-over");
+				rv = -1;
+				incoming = false;
+			} else {
+				/* データ格納 */
+				(void) memcpy(&data[current_length], buf, len);
+				current_length += len;
+				data[current_length] = '\0';
+				if (data[current_length-1] == '\n') {
+					rv = current_length;
+					incoming = false;
+				}
+			}
+		}
+	}while(incoming);
+    *ret_buf = data;
+	(void) fprintf(stderr, "** complete line, len=%zd\n", rv);
+	(void) fprintf(stderr, "'%s'\n", *ret_buf);
+    return(rv);
+}
+
+int
+send_recv(int socket, int child_no, struct user *users)
+{
+	char *buf;
+	ssize_t len;
+	//size_t alloc_len;
 	(void) fprintf(stderr, "-----------------------------------\n");
 
-	if ((len = recv(acc, buf, sizeof(buf), 0)) == -1) {
-		perror("recv");
-		return(-1);
+	len = recv_line(socket, &buf);
+	if (len == -1){ // 受信失敗。無視する
+		(void) fprintf(stderr, "error");
+		return(0);
 	}
-	fprintf(stderr, "len= %zd\n", len);
-	fprintf(stderr, "[DEBUG:child%d]%s\n", child_no, buf);
-
-	if (len == 0) {
+	if(len == 0){
 		(void) fprintf(stderr, "recv:EOF\n");
 		return(-1);
 	}
 	int i;
 	for (i = 0; i < MAX_CHILD; i++) {
-		if(users[i].accept != -1){
+		if(users[i].socket != -1){
 			fprintf(stderr, "sending....to [user:%d]\n", users[i].no);
-			if ((len = send(users[i].accept, buf, (size_t) len, 0)) == -1) {
+			len = send(users[i].socket, buf, (size_t) len, 0);
+			if (len == -1) {
 				perror("send");
 				return(-1);
 			}
 		}
 	}
-	/*
-	if ((len = send(acc, buf, (size_t) len, 0)) == -1) {
-		perror("send");
-		return(-1);
-	}
-	*/
 	return(0);
 }
+
+
+
+/* 送受信ループ */
+/* int */
+/* send_recv(int acc, int child_no, struct user *users) */
+/* { */
+/* 	char buf[512]; //, *ptr; */
+/* 	ssize_t len; */
+
+/* 	(void) fprintf(stderr, "-----------------------------------\n"); */
+
+/* 	len = recv(acc, buf, sizeof(buf), 0); */
+/* 	if (len == -1) { */
+/* 		perror("recv"); */
+/* 		return(-1); */
+/* 	} */
+/* 	fprintf(stderr, "len= %zd\n", len); */
+/* 	fprintf(stderr, "[DEBUG:child%d]%s\n", child_no, buf); */
+
+/* 	if (len == 0) { */
+/* 		(void) fprintf(stderr, "recv:EOF\n"); */
+/* 		return(-1); */
+/* 	} */
+/* 	int i; */
+/* 	for (i = 0; i < MAX_CHILD; i++) { */
+/* 		if(users[i].socket != -1){ */
+/* 			fprintf(stderr, "sending....to [user:%d]\n", users[i].no); */
+/* 			len = send(users[i].socket, buf, (size_t) len, 0); */
+/* 			if (len == -1) { */
+/* 				perror("send"); */
+/* 				return(-1); */
+/* 			} */
+/* 		} */
+/* 	} */
+/* 	/\* */
+/* 	if ((len = send(acc, buf, (size_t) len, 0)) == -1) { */
+/* 		perror("send"); */
+/* 		return(-1); */
+/* 	} */
+/* 	*\/ */
+/* 	return(0); */
+/* } */

@@ -57,8 +57,7 @@ package com.curi.net {
 		public function sendMessage( body:String ):void {
 			debugTrace( "message sending...", body );
 			// send SAY CMD
-			_socket.writeUTFBytes( body );
-			_socket.flush();
+			sendCmd( body );
 		}
 
 		private function socketDataHandler( event:ProgressEvent ):void {
@@ -71,6 +70,15 @@ package com.curi.net {
 					ExternalInterface.call( 'recv', msg );
 					break;
 			}
+		}
+
+		private function sendCmd( body:String ):void {
+			var msg:String    = body + '\n';
+			var buf:ByteArray = new ByteArray;
+			buf.writeUTFBytes( msg );
+			_socket.writeBytes( buf );
+			//_socket.writeUTFBytes( msg );
+			_socket.flush();
 		}
 
 		private function connectHandler( event:Event ):void {
